@@ -21,18 +21,25 @@ what happens instead of trusting a black-box import.
 import os
 import requests
 from dotenv import load_dotenv
-from crewai import Agent
+from crewai import Agent, LLM
 from crewai.tools import BaseTool
-from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
 # ---------------------------------------------------------------------------
 # STEP 1: Define which LLM (AI model) powers this agent
 # ---------------------------------------------------------------------------
-researcher_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3,
+# We use CrewAI's own LLM class here. CrewAI routes every model call
+# through a library called LiteLLM, which needs the provider explicitly
+# stated as a PREFIX on the model name - "openai/gpt-4o-mini", not just
+# "gpt-4o-mini" - so it knows which company's API to call. OpenAI happens
+# to be LiteLLM's silent default, so leaving off the prefix worked here by
+# coincidence - but being explicit is the correct, reliable pattern, and
+# it's REQUIRED for other providers like Anthropic (as you'll see in the
+# Analyst agent), so we're using it consistently across every agent.
+researcher_llm = LLM(
+    model="openai/gpt-4o-mini",
+    temperature=0.3,  # Lower temperature = more focused, factual, less "creative"
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
