@@ -16,6 +16,8 @@ graph's edges (which we'll build in build_graph.py) - you never call these
 functions directly yourself.
 """
 
+from datetime import datetime
+
 from crewai import Task, Crew
 
 from agents.researcher import researcher_agent
@@ -164,22 +166,34 @@ def write_node(state: MarketIntelState) -> MarketIntelState:
     """
     print("\n>>> ENTERING NODE: Writer\n")
 
+    # LLMs have no built-in awareness of "today" - they only know what
+    # they learned during training, which is why the Writer previously
+    # guessed "October 2023" for the report date (a plausible-sounding
+    # but wrong default). We fix this by explicitly telling it the real
+    # date here, using Python's own clock - the model can't discover this
+    # on its own, it can only use what we hand it.
+    today = datetime.now().strftime("%B %d, %Y")  # e.g. "July 13, 2026"
+
     task = Task(
         description=(
             f"Write a market intelligence report section about "
             f"{state['company']}, using the following inputs from your "
             f"team:\n\n"
+            f"TODAY'S DATE: {today}\n\n"
             f"RESEARCH FINDINGS:\n{state['research_findings']}\n\n"
             f"STRATEGIC ANALYSIS:\n{state['analysis']}\n\n"
             f"FACT-CHECK VERDICTS:\n{state['fact_check_verdict']}\n\n"
             f"Write this as a professional report section. Any claim "
             f"marked FLAGGED by the fact-checker must be included with a "
-            f"clear confidence caveat, never stated as a plain fact."
+            f"clear confidence caveat, never stated as a plain fact. "
+            f"Use TODAY'S DATE above (not any date you might otherwise "
+            f"assume) for the 'Report Generated' line."
         ),
         expected_output=(
             "A well-formatted market intelligence report section, with "
             "confident language for confirmed facts, appropriate caveats "
             "for flagged claims, and a sources note."
+
         ),
         agent=writer_agent,
     )
