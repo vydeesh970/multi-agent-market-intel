@@ -19,10 +19,10 @@ what happens instead of trusting a black-box import.
 """
 
 import os
-import requests
 from dotenv import load_dotenv
 from crewai import Agent, LLM
-from crewai.tools import BaseTool
+
+from mcp_servers.mcp_search_tool import MCPWebSearchTool
 
 load_dotenv()
 
@@ -44,67 +44,17 @@ researcher_llm = LLM(
 )
 
 # ---------------------------------------------------------------------------
-# STEP 2: Build our own web search tool
+# STEP 2: Connect to the web search MCP server
 # ---------------------------------------------------------------------------
-# Every CrewAI tool is a Python class that inherits from BaseTool and
-# defines 3 things:
-#   - name: a short label the agent sees when deciding which tool to use
-#   - description: tells the LLM WHEN and WHY to use this tool - this text
-#     is genuinely important, the model reads it to decide whether this
-#     tool is relevant to what it's currently trying to do
-#   - _run(): the actual Python code that executes when the agent calls
-#     this tool. Whatever this function returns gets fed back to the agent
-#     as text it can read and reason about.
-class WebSearchTool(BaseTool):
-    name: str = "Web Search"
-    description: str = (
-        "Searches the web using Google and returns current, real-time "
-        "results. Use this whenever you need up-to-date information such "
-        "as current pricing, recent news, or recent feature launches - "
-        "do not rely on your training data for anything time-sensitive."
-    )
-
-    def _run(self, query: str) -> str:
-        """
-        This method runs the actual search. 'query' is whatever search
-        text the agent decides to send - the agent writes this itself
-        based on what it's trying to find out.
-        """
-        url = "https://google.serper.dev/search"
-        headers = {
-            "X-API-KEY": os.getenv("SERPER_API_KEY"),
-            "Content-Type": "application/json",
-        }
-        payload = {"q": query}
-
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-
-        if response.status_code != 200:
-            return f"Search failed with status {response.status_code}: {response.text}"
-
-        data = response.json()
-
-        # Serper returns several sections (organic results, knowledge graph,
-        # etc.) - we're pulling out the "organic" (regular) search results,
-        # which is what we want for research purposes. We take the top 5
-        # so we don't overwhelm the agent with too much text at once.
-        organic_results = data.get("organic", [])[:5]
-
-        if not organic_results:
-            return "No search results found for this query."
-
-        # Format the results into clean, readable text for the agent to read.
-        formatted = []
-        for i, result in enumerate(organic_results, 1):
-            title = result.get("title", "No title")
-            snippet = result.get("snippet", "No description available")
-            link = result.get("link", "No link")
-            formatted.append(f"{i}. {title}\n   {snippet}\n   Source: {link}")
-
-        return "\n\n".join(formatted)
-
-
-search_tool = WebSearchTool()
+# This used to be a hand-rolled WebSearchTool class defined right here in
+# this file, calling the Serper API directly. It's now been upgraded to
+# MCPWebSearchTool, which internally launches mcp_servers/search_server.py
+# as a separate process and talks to it over the MCP protocol. From this
+# agent's perspective, NOTHING else changes - it's still just a tool with
+# a name, a description, and something that returns text. That's the
+# whole point of MCP: the agent doesn't need to know or care that the
+# actual search logic now lives in a completely separate program.
+search_tool = MCPWebSearchTool()
 
 # ---------------------------------------------------------------------------
 # STEP 3: Define the agent itself

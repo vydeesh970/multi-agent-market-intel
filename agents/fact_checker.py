@@ -25,10 +25,10 @@ what makes that kind of automated branching possible.
 """
 
 import os
-import requests
 from dotenv import load_dotenv
 from crewai import Agent, LLM
-from crewai.tools import BaseTool
+
+from mcp_servers.mcp_search_tool import MCPWebSearchTool
 
 load_dotenv()
 
@@ -63,56 +63,16 @@ fact_checker_llm = LLM(
 )
 
 # ---------------------------------------------------------------------------
-# STEP 2: Reuse the same search tool pattern from the Researcher
+# STEP 2: Connect to the SAME web search MCP server the Researcher uses
 # ---------------------------------------------------------------------------
-# This is the SAME underlying mechanism as the Researcher's WebSearchTool -
-# same Serper API call, same code structure. We're duplicating this class
-# here for now (instead of importing it from researcher.py) to keep each
-# agent file self-contained and easy to read on its own while you're still
-# learning the pattern. Once we build the LangGraph orchestration layer,
-# we'll refactor this into a shared tools/ file so it's defined once and
-# reused everywhere - avoiding duplicate code is a real production
-# practice, we're just not doing it yet on purpose, for clarity.
-class WebSearchTool(BaseTool):
-    name: str = "Web Search"
-    description: str = (
-        "Searches the web using Google and returns current, real-time "
-        "results. Use this to verify SPECIFIC factual claims - for "
-        "example, checking whether a stated price is still accurate "
-        "right now. Search for the specific fact you're checking, not "
-        "broad topics."
-    )
-
-    def _run(self, query: str) -> str:
-        url = "https://google.serper.dev/search"
-        headers = {
-            "X-API-KEY": os.getenv("SERPER_API_KEY"),
-            "Content-Type": "application/json",
-        }
-        payload = {"q": query}
-
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-
-        if response.status_code != 200:
-            return f"Search failed with status {response.status_code}: {response.text}"
-
-        data = response.json()
-        organic_results = data.get("organic", [])[:5]
-
-        if not organic_results:
-            return "No search results found for this query."
-
-        formatted = []
-        for i, result in enumerate(organic_results, 1):
-            title = result.get("title", "No title")
-            snippet = result.get("snippet", "No description available")
-            link = result.get("link", "No link")
-            formatted.append(f"{i}. {title}\n   {snippet}\n   Source: {link}")
-
-        return "\n\n".join(formatted)
-
-
-search_tool = WebSearchTool()
+# This used to be a hand-rolled WebSearchTool class DUPLICATED here (same
+# code as researcher.py, copy-pasted). Now, both the Researcher and the
+# Fact-Checker connect to the exact same search_server.py process
+# definition - one real, shared source of truth for "how web search
+# works" instead of two independent copies that could quietly drift apart
+# over time. This is a genuine, meaningful benefit of the MCP upgrade:
+# duplicate code is gone, not just hidden.
+search_tool = MCPWebSearchTool()
 
 # ---------------------------------------------------------------------------
 # STEP 3: Define the agent itself
