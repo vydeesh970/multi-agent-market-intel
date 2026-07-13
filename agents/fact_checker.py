@@ -49,6 +49,17 @@ fact_checker_llm = LLM(
                        # verification. Any "creativity" here would work
                        # against the whole point of this agent.
     api_key=os.getenv("GOOGLE_API_KEY"),
+    # num_retries tells LiteLLM (the library CrewAI routes through) to
+    # automatically retry a failed call instead of immediately raising an
+    # error. This matters specifically for Gemini's FREE TIER, which
+    # allows only 5 requests per minute - the Fact-Checker naturally makes
+    # several calls in quick succession (search, reason, search again),
+    # and can hit that ceiling even though each individual call is
+    # legitimate. LiteLLM automatically waits and retries when it detects
+    # a rate-limit (429) error, using the wait time the API itself
+    # recommends (visible in the error as "retryDelay": "28s" - LiteLLM
+    # reads that and waits accordingly before trying again).
+    num_retries=3,
 )
 
 # ---------------------------------------------------------------------------
