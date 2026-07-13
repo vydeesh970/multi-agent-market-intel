@@ -42,23 +42,25 @@ load_dotenv()
 # Just like Anthropic needed the "anthropic/" prefix, Gemini needs
 # "gemini/" so LiteLLM knows which provider to route the call to.
 fact_checker_llm = LLM(
-    model="gemini/gemini-2.5-flash",
-    temperature=0.2,  # Lowest temperature of all 3 agents so far. Fact-
+    model="anthropic/claude-haiku-4-5",  # TEMPORARY: swapped from
+                       # "gemini/gemini-2.5-flash" because today's Gemini
+                       # free-tier DAILY quota (20 requests/day) is
+                       # exhausted from earlier testing. Switch the model
+                       # string back to "gemini/gemini-2.5-flash" and the
+                       # api_key back to os.getenv("GOOGLE_API_KEY") once
+                       # tomorrow's quota resets, if you want the
+                       # 3-provider split restored.
+    temperature=0.2,  # Lowest temperature of all agents so far. Fact-
                        # checking is the one job where you want ZERO
                        # creative flexibility - just careful, literal
                        # verification. Any "creativity" here would work
                        # against the whole point of this agent.
-    api_key=os.getenv("GOOGLE_API_KEY"),
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
     # num_retries tells LiteLLM (the library CrewAI routes through) to
     # automatically retry a failed call instead of immediately raising an
-    # error. This matters specifically for Gemini's FREE TIER, which
-    # allows only 5 requests per minute - the Fact-Checker naturally makes
-    # several calls in quick succession (search, reason, search again),
-    # and can hit that ceiling even though each individual call is
-    # legitimate. LiteLLM automatically waits and retries when it detects
-    # a rate-limit (429) error, using the wait time the API itself
-    # recommends (visible in the error as "retryDelay": "28s" - LiteLLM
-    # reads that and waits accordingly before trying again).
+    # error. This matters specifically for free-tier PER-MINUTE rate
+    # limits, which recover in seconds - it does NOT help with a
+    # per-DAY quota, which is what actually blocked the Gemini run.
     num_retries=3,
 )
 

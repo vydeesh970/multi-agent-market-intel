@@ -17,6 +17,24 @@ built today.
 from dotenv import load_dotenv
 load_dotenv()
 
+import litellm
+
+# ---------------------------------------------------------------------------
+# ENABLING LANGSMITH TRACING
+# ---------------------------------------------------------------------------
+# Your 4 agents all use CrewAI's own LLM class, which routes every model
+# call through a library called LiteLLM (we ran into this before, when
+# fixing the "provider not specified" errors). LiteLLM has its OWN,
+# built-in LangSmith integration - separate from LangChain's - and it's
+# activated by setting litellm.success_callback. Once this line runs,
+# EVERY LLM call made anywhere in this pipeline, by any of your 4 agents,
+# across every provider (OpenAI, Anthropic, Gemini), automatically sends
+# a trace to your LangSmith dashboard - no per-agent configuration needed.
+# This one line is genuinely all it takes, but it MUST run before any
+# agent actually makes a call, which is why it's here at the very top of
+# your entry point, before the graph is even built.
+litellm.success_callback = ["langsmith"]
+
 from graph.build_graph import build_market_intel_graph
 
 if __name__ == "__main__":
