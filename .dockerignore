@@ -1,0 +1,26 @@
+# Never let the real .env file into the image - this is the actual secret
+# file with your live API keys. If this got baked into a Docker image,
+# and that image was ever pushed to a public registry (like Docker Hub),
+# your keys would be permanently exposed to anyone who pulled the image -
+# even if you deleted it later, since image layers can be cached/mirrored.
+.env
+
+# The virtual environment is Windows-specific and enormous - the
+# container builds its own clean Python environment from requirements.txt
+# instead. Including this would bloat the image with useless, broken files.
+venv/
+
+# Python cache files - regenerated automatically, never needed in an image.
+__pycache__/
+*.pyc
+
+# Git metadata has no purpose inside a running container.
+.git/
+.gitignore
+
+# Local chroma vector DB data, if it exists - the container should start
+# fresh, not carry over local test data.
+chroma_db/
+
+# Log files from local runs - not needed inside the image.
+*.log
