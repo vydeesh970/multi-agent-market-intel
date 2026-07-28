@@ -18,10 +18,16 @@ from scratch.
 
 The Fact-Checker also produces a structured output (a clear CONFIRMED /
 FLAGGED verdict per claim) rather than free-flowing prose. This matters
-because later, LangGraph will read this output to make a real decision:
-if anything is flagged, loop back to the Researcher for correction; if
-everything's confirmed, move forward to the Writer. Structured output is
-what makes that kind of automated branching possible.
+because LangGraph reads this output to make a real decision: if anything
+is flagged, loop back to the Researcher for correction (up to a bounded
+retry limit); if everything's confirmed, move forward to the Writer.
+
+This version connects to web search via a custom-built MCP (Model Context
+Protocol) server, instead of a hand-rolled tool class. The search logic
+itself now lives in mcp_servers/search_server.py as a standalone process,
+and both this agent and the Researcher connect to that SAME server -
+one real source of truth for "how web search works," instead of
+duplicated code that could quietly drift apart over time.
 """
 
 import os
@@ -36,44 +42,49 @@ load_dotenv()
 # STEP 1: Define which LLM powers this agent
 # ---------------------------------------------------------------------------
 # Using Gemini 2.5 Flash here - fast and cheap like our other two agents'
-# models, and it rounds out our 3-provider comparison (OpenAI powers the
+# models, and it completes our 3-provider comparison (OpenAI powers the
 # Researcher, Anthropic powers the Analyst, Gemini powers the Fact-Checker).
 #
-# Just like Anthropic needed the "anthropic/" prefix, Gemini needs
-# "gemini/" so LiteLLM knows which provider to route the call to.
+# We use CrewAI's own LLM class (not LangChain's wrapper) because CrewAI
+# routes every model call through LiteLLM, which needs the provider
+# explicitly stated as a PREFIX on the model name - "gemini/gemini-2.5-flash",
+# not just "gemini-2.5-flash" - or it doesn't know which company's API to
+# call.
 fact_checker_llm = LLM(
-    model="anthropic/claude-haiku-4-5",  # TEMPORARY: swapped from
-                       # "gemini/gemini-2.5-flash" because today's Gemini
-                       # free-tier DAILY quota (20 requests/day) is
-                       # exhausted from earlier testing. Switch the model
-                       # string back to "gemini/gemini-2.5-flash" and the
-                       # api_key back to os.getenv("GOOGLE_API_KEY") once
-                       # tomorrow's quota resets, if you want the
-                       # 3-provider split restored.
-    temperature=0.2,  # Lowest temperature of all agents so far. Fact-
-                       # checking is the one job where you want ZERO
-                       # creative flexibility - just careful, literal
-                       # verification. Any "creativity" here would work
-                       # against the whole point of this agent.
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    # num_retries tells LiteLLM (the library CrewAI routes through) to
-    # automatically retry a failed call instead of immediately raising an
-    # error. This matters specifically for free-tier PER-MINUTE rate
-    # limits, which recover in seconds - it does NOT help with a
-    # per-DAY quota, which is what actually blocked the Gemini run.
+    model="gemini/gemini-2.5-flash",
+    temperature=0.2,  # Lowest temperature of all 4 agents. Fact-checking
+                       # is the one job where you want ZERO creative
+                       # flexibility - just careful, literal verification.
+                       # Any "creativity" here would work against the
+                       # whole point of this agent.
+    api_key=os.getenv("GOOGLE_API_KEY"),
+    # num_retries tells LiteLLM to automatically retry a failed call
+    # instead of immediately raising an error. This matters specifically
+    # for Gemini's FREE TIER, which allows only 5 requests per MINUTE -
+    # the Fact-Checker naturally makes several calls in quick succession
+    # (search, reason, search again), and can hit that ceiling even
+    # though each individual call is legitimate. LiteLLM automatically
+    # waits and retries when it detects a rate-limit (429) error, using
+    # the wait time the API itself recommends.
+    #
+    # NOTE: this does NOT help with Gemini's separate DAILY quota (20
+    # requests/day on the free tier) - that one just needs to not be
+    # exhausted. If you hit that specific error, the practical fix is
+    # waiting ~24 hours for it to reset, or temporarily swapping this
+    # agent to a different provider (e.g. model="anthropic/claude-haiku-4-5"
+    # with api_key=os.getenv("ANTHROPIC_API_KEY")) to keep testing.
     num_retries=3,
 )
 
 # ---------------------------------------------------------------------------
-# STEP 2: Connect to the SAME web search MCP server the Researcher uses
+# STEP 2: Connect to the web search MCP server
 # ---------------------------------------------------------------------------
-# This used to be a hand-rolled WebSearchTool class DUPLICATED here (same
-# code as researcher.py, copy-pasted). Now, both the Researcher and the
-# Fact-Checker connect to the exact same search_server.py process
-# definition - one real, shared source of truth for "how web search
-# works" instead of two independent copies that could quietly drift apart
-# over time. This is a genuine, meaningful benefit of the MCP upgrade:
-# duplicate code is gone, not just hidden.
+# MCPWebSearchTool internally launches mcp_servers/search_server.py as a
+# separate process and talks to it over the MCP protocol (stdio
+# transport). From this agent's perspective, this is just a normal
+# CrewAI tool with a name, a description, and something that returns
+# text - it doesn't know or care that the actual search logic lives in a
+# completely separate program.
 search_tool = MCPWebSearchTool()
 
 # ---------------------------------------------------------------------------
@@ -118,7 +129,7 @@ fact_checker_agent = Agent(
 
 
 # ---------------------------------------------------------------------------
-# Standalone test - checking the Analyst's actual output from your last
+# Standalone test - checking the Analyst's actual output from an earlier
 # run. This is a good real test because the Analyst made several specific,
 # checkable claims (like the $39/month Pro+ price and the 290% increase
 # calculation) mixed with genuine interpretation - a good Fact-Checker
