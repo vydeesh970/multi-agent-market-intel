@@ -12,10 +12,10 @@ Sales and product teams need continuous competitor monitoring, but manual resear
 
 1. **Research** — search the live web for current pricing, features, and news
 2. **Analyze** — synthesize raw findings into strategic insight and competitive positioning
-3. **Fact-check** — independently re-verify specific claims against live sources, and flag anything it can't confirm
+3. **Fact-check** — independently re-verify specific claims against live sources, and flag anything it can't confirm, ranked by severity (critical vs minor)
 4. **Write** — produce a polished report that clearly separates confirmed facts from flagged, uncertain claims
 
-If the fact-checker finds a problem, the system **automatically loops back** and re-researches — up to a bounded retry limit — before falling back to a transparent, caveated report rather than either failing silently or looping forever.
+If the fact-checker finds a **critical** problem, the system **automatically loops back** and re-researches — up to a bounded retry limit — before falling back to a transparent, caveated report rather than either failing silently or looping forever. Minor issues (e.g. naming inconsistencies in the source material itself) are surfaced to the reader without triggering a retry.
 
 ---
 
@@ -33,8 +33,8 @@ If the fact-checker finds a problem, the system **automatically loops back** and
                            │
                            ▼
                     ┌─────────────┐
-                    │Fact-Checker │──▶ independently re-verifies specific claims
-                    └─────────────┘
+                    │Fact-Checker │──▶ independently re-verifies specific claims,
+                    └─────────────┘    ranks issues as CRITICAL or MINOR
                            │
                            ▼
                   ┌──────────────────┐
@@ -42,8 +42,8 @@ If the fact-checker finds a problem, the system **automatically loops back** and
                   │  (LangGraph)     │
                   └──────────────────┘
                      │            │
-        claims flagged │            │ all confirmed
-        AND retries left│            │ OR retries exhausted
+     CRITICAL flag    │            │ only MINOR flags (or none)
+     AND retries left  │            │ OR retries exhausted
                      ▼            ▼
               back to Researcher  ┌─────────┐
                                   │ Writer  │──▶ confidence-labeled final report
@@ -79,7 +79,9 @@ Each agent runs on a different LLM provider — a deliberate choice to compare c
 
 **A confidence-labeling editorial policy, not silent filtering.** When the Fact-Checker can't confirm a claim, the Writer doesn't drop it — it includes the claim with an explicit confidence caveat. Silently omitting uncertain information erodes trust the first time someone discovers something was missing with no explanation; real intelligence reports communicate certainty levels rather than pretending everything is equally solid.
 
-**A bounded retry loop, not infinite or single-shot.** If the Fact-Checker flags a problem, LangGraph routes the pipeline back to the Researcher automatically — but only up to a configured `max_retries`. Past that, the pipeline proceeds anyway with full transparency about what couldn't be verified, rather than looping forever or failing outright.
+**Severity-ranked fact-check flags.** Not every flagged issue deserves the same response. The Fact-Checker classifies problems as `FLAGGED-CRITICAL` (a genuine factual error — wrong price, invented date, a claim contradicted by search results) or `FLAGGED-MINOR` (a real but low-stakes issue, like a naming inconsistency the source material itself uses inconsistently). Only critical flags trigger the retry loop; minor flags are still surfaced to the reader, but re-researching won't fix a source's own inconsistent terminology, so treating every flag identically would waste API calls and time.
+
+**A bounded retry loop, not infinite or single-shot.** If the Fact-Checker flags a critical problem, LangGraph routes the pipeline back to the Researcher automatically — but only up to a configured `max_retries`. Past that, the pipeline proceeds anyway with full transparency about what couldn't be verified, rather than looping forever or failing outright.
 
 **Hand-built MCP server and client.** `crewai-tools`' pre-built search tool had a real, verified import bug in the pinned CrewAI version this project uses. Rather than fight version compatibility, a custom `WebSearchTool` was built directly from CrewAI's `BaseTool`, and later upgraded to a genuine MCP implementation — a standalone server process (`mcp_servers/search_server.py`) speaking the MCP protocol over stdio, and a client tool that launches it as a subprocess. This decouples "how search works" from "how any given agent framework calls it."
 
@@ -157,7 +159,6 @@ The CronJob runs weekly by default (`0 6 * * 1` — every Monday at 6 AM), confi
 
 - **Gemini's free tier** caps at 20 requests/day and 5/minute — sufficient for development and testing, but a production deployment running this on a real schedule would need a paid tier.
 - **Claude Haiku 4.5 occasionally deviates from CrewAI's exact expected output format** during long, multi-search fact-checking tasks, triggering automatic reformatting retries within CrewAI itself. This adds latency but doesn't affect correctness.
-- **Fact-Checker flags are currently binary** (confirmed/flagged) rather than severity-ranked — a genuine factual error and a minor phrasing nitpick both trigger the same retry behavior. A natural next improvement would be categorizing flag severity.
 - **LangSmith tracing via LiteLLM's callback has a benign initialization warning** (`no running event loop`) in synchronous execution contexts — explicitly logged by LiteLLM as non-blocking, and confirmed not to affect trace delivery or pipeline execution.
 
 ---
