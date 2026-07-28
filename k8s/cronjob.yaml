@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# CronJob: multi-agent-market-intel
+# ---------------------------------------------------------------------------
+# This is a Kubernetes CronJob - it wraps a Job (a "run once until done" task)
+# with a schedule, so Kubernetes automatically creates and runs a new Pod
+# from your Docker image at each scheduled time, without you doing anything
+# manually. This is the literal implementation of "continuous market
+# monitoring" from your original project plan.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # This is the CronJob's own name within the cluster - how you'll refer to
+  # it in kubectl commands (kubectl get cronjob market-intel-report, etc.)
+  name: market-intel-report
+
+spec:
+  # ---------------------------------------------------------------------------
+  # THE SCHEDULE
+  # ---------------------------------------------------------------------------
+  # This uses standard cron syntax: minute, hour, day-of-month, month,
+  # day-of-week. "0 6 * * 1" breaks down as:
+  #   0     - at minute 0
+  #   6     - of hour 6 (6 AM)
+  #   *     - any day of the month
+  #   *     - any month
+  #   1     - only on day-of-week 1 (Monday, where Sunday=0)
+  # Combined: "Every Monday at 6:00 AM" - matching your original project
+  # plan of continuous weekly competitor monitoring.
+  schedule: "0 6 * * 1"
+
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: market-intel-runner
+              # This MUST match the image name we loaded into Minikube exactly.
+              image: multi-agent-market-intel:latest
+
+              # imagePullPolicy: Never is IMPORTANT for local Minikube testing
+              # specifically. By default, Kubernetes tries to PULL (download)
+              # images from an internet registry like Docker Hub. Since your
+              # image only exists locally (we loaded it directly via
+              # `minikube image load`, not published anywhere), we tell
+              # Kubernetes "never try to download this, just use what's
+              # already loaded locally." In a real cloud deployment, you'd
+              # instead push your image to a real registry (Docker Hub, AWS
+              # ECR, etc.) and use imagePullPolicy: Always or IfNotPresent
+              # instead - this line is the one clearly Minikube-specific
+              # convenience in this whole file.
+              imagePullPolicy: Never
+
+              # ---------------------------------------------------------------
+              # INJECTING YOUR SECRETS
+              # ---------------------------------------------------------------
+              # envFrom + secretRef tells Kubernetes: "take every key in the
+              # Secret named 'market-intel-secrets' and inject each one as an
+              # environment variable inside this container." This is the
+              # Kubernetes-native equivalent of Docker's --env-file flag -
+              # your Python code's os.getenv("OPENAI_API_KEY") calls work
+              # completely unchanged, since from the container's perspective,
+              # these are just normal environment variables either way.
+              envFrom:
+                - secretRef:
+                    name: market-intel-secrets
+
+          # restartPolicy: Never means if your pipeline crashes with an
+          # error, Kubernetes should NOT automatically restart it and try
+          # again immediately. This makes sense for your use case - if
+          # something is genuinely broken (a bad API key, a code bug), you
+          # want to see that failure and investigate, not have Kubernetes
+          # silently retry forever. (Contrast this with a real web server,
+          # where you'd usually want automatic restarts on crash.)
+          restartPolicy: Never
